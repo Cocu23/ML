@@ -1,0 +1,109 @@
+---
+title: "Report Practical Machine Learning"
+author: "Cocu23"
+---
+## Introduction
+
+In this project, data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants will be analysed in order to predict the manner in which they did their exercise.
+This is described by the "classe" variable in the training set. The report descries how the model was built, how cross validation was used and why the choices were made in the way the were. 
+
+## Data Preprocessing
+
+```{r, echo=TRUE}
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+library(e1071)
+library(corrplot)
+
+# getting the data
+trainUrl <-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+train <- "./data/pml-training.csv"
+test  <- "./data/pml-testing.csv"
+if (!file.exists("./data")) {
+  dir.create("./data")
+}
+if (!file.exists(train)) {
+  download.file(trainUrl, destfile=train, method="curl")
+}
+if (!file.exists(test)) {
+  download.file(testUrl, destfile=test, method="curl")
+}
+
+# create data frames
+trainData <- read.csv("./data/pml-training.csv")
+testRaw <- read.csv("./data/pml-testing.csv")
+dim(trainData)
+dim(testRaw)
+```
+Hence, the data set contains 160 variables by 19622 observations or 20 observations, respectively.
+
+## Data Cleaning
+
+The training dataset will now be reduced by removing unsignificant variables, such as those which contains missing values.
+```{r, echo=TRUE}
+sum(complete.cases(trainData))
+```
+Thus, we remove the 406 columns that contain missing values, i.e. NA.
+```{r, echo=TRUE}
+trainData <- trainData[, colSums(is.na(trainData)) == 0] 
+testRaw <- testRaw[, colSums(is.na(testRaw)) == 0] 
+```
+Next, we get rid of some columns that do not contribute much to the accelerometer measurements.
+```{r, echo=TRUE}
+classe <- trainData$classe
+trainRemove <- grepl("^X|timestamp|window", names(trainData))
+trainData <- trainData[, !trainRemove]
+trainCleaned <- trainData[, sapply(trainData, is.numeric)]
+trainCleaned$classe <- classe
+testRemove <- grepl("^X|timestamp|window", names(testRaw))
+testRaw <- testRaw[, !testRemove]
+testCleaned <- testRaw[, sapply(testRaw, is.numeric)]
+```
+The cleaned training data set reduced the number of variables to a total of 53.
+The dataset will now be splitted in a first training and a testing dataset, following the empircal 80-20 approach.
+```{r, echo=TRUE}
+set.seed(2) 
+inTrain <- createDataPartition(trainCleaned$classe, p=0.8, list=F)
+trainData <- trainCleaned[inTrain, ]
+testData <- trainCleaned[-inTrain, ]
+```
+
+## Data Modeling
+
+The predictive model used in this excercise is a Random Forest algorithm. Its strength lies in its detection of important variables. Additionally, it is robust to noise.
+```{r, echo=TRUE}
+controlRf <- trainControl(method="cv", 5)
+modelRf <- train(classe ~ ., data=trainData, method="rf", trControl=controlRf, ntree=100)
+modelRf
+```
+Now, estimate the performance of the model
+```{r, echo=TRUE}
+predictRf <- predict(modelRf, testData)
+confusionMatrix(testData$classe, predictRf)
+accuracy <- postResample(predictRf, testData$classe)
+accuracy
+acc <- 1 - as.numeric(confusionMatrix(testData$classe, predictRf)$overall[1])
+acc
+```
+So, the estimated accuracy of the model is over 99% and the estimated out-of-sample error less then 1%.
+
+## Applying to test data 
+
+Finally, applying the model to the test data.
+```{r, echo=TRUE}
+result <- predict(modelRf, testCleaned[, -length(names(testCleaned))])
+result
+```
+
+## Appendix: Figures
+```{r, echo=TRUE}
+# Correlation Matrix Visualization
+corrPlot <- cor(trainData[, -length(names(trainData))])
+corrplot(corrPlot, method="color")
+# Decision Tree Visualization
+treeModel <- rpart(classe ~ ., data=trainData, method="class")
+prp(treeModel) 
+```
